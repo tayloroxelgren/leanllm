@@ -749,7 +749,6 @@
   $('web-search-toggle').addEventListener('click', () => setWebSearch(!state.webSearch));
   $('composer-search').addEventListener('click', () => setWebSearch(!state.webSearch));
   $('new-chat').addEventListener('click', newChat);
-  $('new-chat-desktop').addEventListener('click', newChat);
   $('conversation-filter').addEventListener('input', event => {
     state.filter = event.target.value;
     renderConversationList();
