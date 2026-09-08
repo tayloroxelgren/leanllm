@@ -1,9 +1,6 @@
 # LeanLLM
 
-A small, dependency-free chat UI for Ollama. It reproduces the useful parts of
-the llama.cpp Web UI experience—conversation history, model discovery, streaming
-Markdown, source cards, dark mode, and responsive layout—without a bundler or
-JavaScript package tree.
+A small, dependency-free chat UI for Ollama.
 
 ## Quick start
 
@@ -63,3 +60,6 @@ to follow or review the stream.
 
 There are no runtime npm dependencies. Conversations are stored in
 `data/conversations.json`.
+
+---
+<small>This was all vibed</small>
