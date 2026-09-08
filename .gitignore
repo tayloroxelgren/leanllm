@@ -1,0 +1,5 @@
+data/
+.leanllm.git/
+*.log
+.env
+.DS_Store
