@@ -74,6 +74,17 @@ function safeTitle(conversation) {
   return conversation.title || 'New chat';
 }
 
+function buildSystemPrompt(customPrompt = '') {
+  const timestamp = new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'full',
+    timeStyle: 'long'
+  }).format(new Date());
+  return [
+    customPrompt.trim(),
+    `Current date and time: ${timestamp}. Treat this timestamp as authoritative for the current date.`
+  ].filter(Boolean).join('\n\n');
+}
+
 async function webTools() {
   await exa.connect();
   const tools = exa.tools
@@ -215,7 +226,7 @@ async function chat(req, res) {
         if (message.role === 'fetch') return { role: 'tool', content: message.toolOutput || message.content, tool_name: 'web_fetch_exa' };
         return { role: message.role, content: message.content };
       });
-    if (input.systemPrompt?.trim()) context.unshift({ role: 'system', content: input.systemPrompt.trim() });
+    context.unshift({ role: 'system', content: buildSystemPrompt(input.systemPrompt) });
 
     for (let turn = 0; turn < 8; turn++) {
       const requestBody = {
