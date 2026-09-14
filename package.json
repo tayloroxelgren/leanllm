@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check lib/mcp-client.js && node --check lib/search-results.js && node --check lib/store.js"
+    "check": "node --check server.js && node --check lib/mcp-client.js && node --check lib/search-results.js && node --check lib/store.js && node --check public/assets/markdown.js && node --check public/assets/app.js",
+    "test": "npm run check && node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=18"
