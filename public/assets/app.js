@@ -231,6 +231,15 @@
       details.addEventListener('toggle', () => {
         message[details.dataset.stateKey] = details.open;
       });
+
+      const content = details.querySelector('.thinking-content');
+      if (content) {
+        content.dataset.sticky = 'true';
+        content.addEventListener('scroll', () => {
+          content.dataset.sticky =
+            content.scrollHeight - content.scrollTop - content.clientHeight < 80 ? 'true' : 'false';
+        }, { passive: true });
+      }
     }
     return element;
   }
@@ -548,14 +557,19 @@
     if (event.type === 'delta') {
       const message = await appendEvent('delta', event);
       if (!message) return;
-      message.thinkingOpen = assistantNodeRef.current?.querySelector('.thinking-block')?.open === true;
-      const thinkingScroll = assistantNodeRef.current?.querySelector('.thinking-content')?.scrollTop || 0;
+      const previousThinkingContent = assistantNodeRef.current?.querySelector('.thinking-content');
+      message.thinkingOpen = Boolean(previousThinkingContent?.closest('.thinking-block')?.open);
+      const thinkingScroll = previousThinkingContent?.scrollTop || 0;
+      const thinkingSticky = previousThinkingContent?.dataset.sticky !== 'false';
       message.content = (message.content || '') + event.content;
       Object.assign(localAssistant, message);
       const node = messageNode(message, true);
       setAssistantNode(node);
       const thinkingContent = node.querySelector('.thinking-content');
-      if (thinkingContent) thinkingContent.scrollTop = thinkingScroll;
+      if (thinkingContent) {
+        thinkingContent.dataset.sticky = String(thinkingSticky);
+        thinkingContent.scrollTop = thinkingScroll;
+      }
       if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160) scrollToBottom();
       return;
     }
@@ -574,8 +588,10 @@
         const content = existingDetails.querySelector('.thinking-content');
         if (label) label.textContent = 'Thinking…';
         if (content) {
+          const sticky = content.dataset.sticky !== 'false';
+          const scrollTop = content.scrollTop;
           content.textContent = message.thinking;
-          if (existingDetails.open) content.scrollTop = content.scrollHeight;
+          if (existingDetails.open) content.scrollTop = sticky ? content.scrollHeight : scrollTop;
         }
       }
       if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 200) scrollToBottom();
