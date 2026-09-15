@@ -77,6 +77,28 @@ These are relative local-loopback results, not production capacity estimates.
 
 Static and memoized API paths are fast. `/api/models` necessarily performs a proxied upstream request per call and should not be called more often than the UI requires.
 
+## CommonJS startup follow-up
+
+After this investigation, the server-only modules were converted from ESM to
+CommonJS by renaming them to `.cjs`. The browser scripts remain unchanged, and
+the package remains ESM for tests/browser assets. Conversation data is still
+loaded before `listen()` to preserve existing readiness semantics.
+
+Using the same 15-sample startup methodology:
+
+| Scenario | ESM baseline p50 | CommonJS p50 | Difference |
+|---|---:|---:|---:|
+| Empty history | 42.2 ms | 25.1 ms | -17.1 ms |
+| 529 KB history | 41.4 ms | 27.5 ms | -13.9 ms |
+| 21.1 MB history | 89.6 ms | 96.8 ms | +7.2 ms |
+
+The empty-data result exceeded the original estimate because the benchmark
+includes spawning and HTTP health-check overhead. CommonJS avoids the ESM module
+loading path and moves the minimal HTTP floor from roughly 35 ms to roughly
+20 ms. The 21.1 MB result is noisy because JSON parsing dominates and synthetic
+data varies in cache behavior between runs; lazy/background loading is the better
+fix for large histories.
+
 ## Chat proxy overhead
 
 The mock emitted 200 NDJSON deltas per response:

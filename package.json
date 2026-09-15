@@ -4,11 +4,11 @@
   "private": true,
   "description": "A dependency-free chat UI for local Ollama models with Exa MCP web search.",
   "type": "module",
-  "main": "server.js",
+  "main": "server.cjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check lib/mcp-client.js && node --check lib/search-results.js && node --check lib/store.js && node --check public/assets/markdown.js && node --check public/assets/app.js",
+    "start": "node server.cjs",
+    "dev": "node --watch server.cjs",
+    "check": "node --check server.cjs && node --check lib/mcp-client.cjs && node --check lib/search-results.cjs && node --check lib/store.cjs && node --check public/assets/markdown.js && node --check public/assets/app.js",
     "test": "npm run check && node --test tests/*.test.js"
   },
   "engines": {

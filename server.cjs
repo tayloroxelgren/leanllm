@@ -1,13 +1,12 @@
-import http from 'node:http';
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { ConversationStore } from './lib/store.js';
-import { ExaMcpClient } from './lib/mcp-client.js';
-import { parseSearchResults } from './lib/search-results.js';
+const http = require('node:http');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const path = require('node:path');
+const { ConversationStore } = require('./lib/store.cjs');
+const { ExaMcpClient } = require('./lib/mcp-client.cjs');
+const { parseSearchResults } = require('./lib/search-results.cjs');
 
-const root = path.dirname(fileURLToPath(import.meta.url));
+const root = __dirname;
 const port = Number(process.env.PORT || 5173);
 const dataDir = process.env.LEANLLM_DATA_DIR || path.join(root, 'data');
 const store = new ConversationStore(path.join(dataDir, 'conversations.json'));
@@ -25,8 +24,6 @@ const mime = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml'
 };
-
-await store.load();
 
 function send(res, status, body, headers = {}) {
   res.writeHead(status, {
@@ -442,7 +439,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`LeanLLM ready: http://localhost:${port}`);
-  console.log(`Data: ${dataDir}`);
+store.load().then(() => {
+  server.listen(port, () => {
+    console.log(`LeanLLM ready: http://localhost:${port}`);
+    console.log(`Data: ${dataDir}`);
+  });
+}).catch(error => {
+  console.error('Unable to initialize conversations:', error);
+  process.exitCode = 1;
 });
