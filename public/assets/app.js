@@ -25,6 +25,7 @@
   const sendButton = $('send');
   const stopButton = $('stop');
   const toastEl = $('toast');
+  const messageSources = new WeakMap();
 
   async function api(pathname, options = {}) {
     const response = await fetch(pathname, {
@@ -52,82 +53,7 @@
     })[char]);
   }
 
-  function inlineMarkdown(text) {
-    let value = escapeHtml(text);
-    const codes = [];
-    value = value.replace(/`([^`\n]+)`/g, (_, code) => {
-      codes.push(`<code>${code}</code>`);
-      return `\u0000CODE${codes.length - 1}\u0000`;
-    });
-    value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    value = value.replace(/(^|[\s(])\*(?!\s)([^*\n]+)(?<!\s)\*(?=[\s).,!?:;]|$)/g, '$1<strong>$2</strong>');
-    value = value.replace(/(^|[\s(])_(?!\s)([^_\n]+)(?<!\s)_(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>');
-    return value.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => codes[index]);
-  }
-
-  function renderMarkdown(raw = '') {
-    const text = String(raw).replace(/\r\n?/g, '\n');
-    const blocks = [];
-    let work = text.replace(/```([^\n`]*)\n([\s\S]*?)(?:```|$)/g, (_, language, code) => {
-      const lang = language.trim().split(/\s+/)[0] || 'text';
-      blocks.push(`
-        <div class="code-block">
-          <button class="code-copy" type="button">Copy</button>
-          <pre><code data-language="${escapeHtml(lang)}">${escapeHtml(code.replace(/\n$/, ''))}</code></pre>
-        </div>`);
-      return `\u0000BLOCK${blocks.length - 1}\u0000`;
-    });
-
-    const paragraphs = [];
-    let list = null;
-    let paragraph = [];
-
-    const flushParagraph = () => {
-      if (paragraph.length) {
-        paragraphs.push(`<p>${inlineMarkdown(paragraph.join('<br>'))}</p>`);
-        paragraph = [];
-      }
-    };
-    const flushList = () => {
-      if (list) {
-        paragraphs.push(`<${list.tag}>${list.items.map(item => `<li>${inlineMarkdown(item)}</li>`).join('')}</${list.tag}>`);
-        list = null;
-      }
-    };
-
-    for (const line of work.split('\n')) {
-      const heading = line.match(/^(#{1,4})\s+(.*)$/);
-      const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
-      const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
-      const block = line.match(/^\u0000BLOCK(\d+)\u0000$/);
-
-      if (block) {
-        flushParagraph(); flushList();
-        paragraphs.push(blocks[Number(block[1])]);
-      } else if (heading) {
-        flushParagraph(); flushList();
-        paragraphs.push(`<h${heading[1].length}>${inlineMarkdown(heading[2])}</h${heading[1].length}>`);
-      } else if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) {
-        flushParagraph(); flushList();
-        paragraphs.push('<hr>');
-      } else if (line.trimStart().startsWith('>')) {
-        flushParagraph(); flushList();
-        paragraphs.push(`<blockquote>${inlineMarkdown(line.replace(/^\s*>\s?/, ''))}</blockquote>`);
-      } else if (bullet || ordered) {
-        flushParagraph();
-        const tag = bullet ? 'ul' : 'ol';
-        if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
-        list.items.push((bullet || ordered)[1]);
-      } else if (!line.trim()) {
-        flushParagraph(); flushList();
-      } else {
-        flushList();
-        paragraph.push(line);
-      }
-    }
-    flushParagraph(); flushList();
-    return paragraphs.join('');
-  }
+  const renderMarkdown = raw => LeanMarkdown.render(raw);
 
   function formatBytes(bytes) {
     if (!Number.isFinite(bytes)) return '';
@@ -191,6 +117,7 @@
 
   function messageNode(message, latestAssistant = false) {
     const element = document.createElement('div');
+    messageSources.set(element, message.content || '');
     if (message.role === 'user') {
       element.className = 'message message-user';
       element.innerHTML = `<div class="message-bubble">${escapeHtml(message.content)}</div>`;
@@ -231,6 +158,15 @@
       details.addEventListener('toggle', () => {
         message[details.dataset.stateKey] = details.open;
       });
+
+      const content = details.querySelector('.thinking-content');
+      if (content) {
+        content.dataset.sticky = 'true';
+        content.addEventListener('scroll', () => {
+          content.dataset.sticky =
+            content.scrollHeight - content.scrollTop - content.clientHeight < 80 ? 'true' : 'false';
+        }, { passive: true });
+      }
     }
     return element;
   }
@@ -548,14 +484,19 @@
     if (event.type === 'delta') {
       const message = await appendEvent('delta', event);
       if (!message) return;
-      message.thinkingOpen = assistantNodeRef.current?.querySelector('.thinking-block')?.open === true;
-      const thinkingScroll = assistantNodeRef.current?.querySelector('.thinking-content')?.scrollTop || 0;
+      const previousThinkingContent = assistantNodeRef.current?.querySelector('.thinking-content');
+      message.thinkingOpen = Boolean(previousThinkingContent?.closest('.thinking-block')?.open);
+      const thinkingScroll = previousThinkingContent?.scrollTop || 0;
+      const thinkingSticky = previousThinkingContent?.dataset.sticky !== 'false';
       message.content = (message.content || '') + event.content;
       Object.assign(localAssistant, message);
       const node = messageNode(message, true);
       setAssistantNode(node);
       const thinkingContent = node.querySelector('.thinking-content');
-      if (thinkingContent) thinkingContent.scrollTop = thinkingScroll;
+      if (thinkingContent) {
+        thinkingContent.dataset.sticky = String(thinkingSticky);
+        thinkingContent.scrollTop = thinkingScroll;
+      }
       if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160) scrollToBottom();
       return;
     }
@@ -574,8 +515,10 @@
         const content = existingDetails.querySelector('.thinking-content');
         if (label) label.textContent = 'Thinking…';
         if (content) {
+          const sticky = content.dataset.sticky !== 'false';
+          const scrollTop = content.scrollTop;
           content.textContent = message.thinking;
-          if (existingDetails.open) content.scrollTop = content.scrollHeight;
+          if (existingDetails.open) content.scrollTop = sticky ? content.scrollHeight : scrollTop;
         }
       }
       if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 200) scrollToBottom();
@@ -668,20 +611,71 @@
     $('theme-label').textContent = dark ? 'Light mode' : 'Dark mode';
   }
 
+  async function copyText(text) {
+    if (!text) throw new Error('Nothing to copy');
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+      }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.className = 'copy-fallback';
+    textarea.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(textarea);
+    const selection = document.getSelection();
+    const previousRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    try {
+      if (!document.execCommand('copy')) throw new Error('Clipboard copy denied');
+    } finally {
+      textarea.remove();
+      if (previousRange && selection) {
+        selection.removeAllRanges();
+        selection.addRange(previousRange);
+      }
+    }
+  }
+
+  function copyableCode(block) {
+    const code = block.querySelector('code')?.textContent || '';
+    if (!block.classList.contains('command-block')) return code;
+    return code.split(/\r?\n/).map(line => {
+      const prompt = line.match(/^\s*(?:\$|%|>|PS>\s?)(?:\s+)(.*)$/);
+      return prompt ? prompt[1] : line;
+    }).filter((line, index, lines) => line.trim() || (index > 0 && index < lines.length - 1)).join('\n');
+  }
+
   document.addEventListener('click', async event => {
     const copyButton = event.target.closest('.code-copy');
     if (copyButton) {
-      const code = copyButton.parentElement.querySelector('code')?.textContent || '';
-      await navigator.clipboard.writeText(code);
-      copyButton.textContent = 'Copied';
-      setTimeout(() => { copyButton.textContent = 'Copy'; }, 1200);
+      const original = copyButton.textContent;
+      copyButton.textContent = 'Copying…';
+      try {
+        await copyText(copyableCode(copyButton.closest('.code-block')));
+        copyButton.textContent = 'Copied';
+      } catch (error) {
+        copyButton.textContent = original;
+        toast(error.message);
+      } finally {
+        setTimeout(() => { copyButton.textContent = original; }, 1200);
+      }
       return;
     }
     const copyMessage = event.target.closest('[data-copy-message]');
     if (copyMessage) {
-      const text = copyMessage.closest('.message')?.querySelector('.markdown')?.textContent || '';
-      await navigator.clipboard.writeText(text);
-      toast('Message copied');
+      try {
+        await copyText(messageSources.get(copyMessage.closest('.message')) || '');
+        toast('Message copied');
+      } catch (error) {
+        toast(error.message);
+      }
       return;
     }
 
