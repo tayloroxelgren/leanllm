@@ -188,6 +188,12 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-linecap:
   max-width: min(85%, 40rem); border-radius: 1.25rem; background: var(--secondary); color: var(--secondary-foreground);
   padding: 0.75rem 1rem; overflow-wrap: anywhere; line-height: 1.6; white-space: pre-wrap;
 }
+.message-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
+.message-images + div { margin-top: 0.5rem; }
+.message-images img {
+  display: block; width: 100%; max-height: 10.5rem; object-fit: cover;
+  border-radius: 0.55rem;
+}
 .message-assistant { display: grid; gap: 0.7rem; }
 .thinking-block {
   overflow: hidden; border: 1px solid var(--border); border-radius: 0.75rem;
@@ -289,12 +295,35 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-linecap:
   border-radius: 1.65rem; background: var(--card); box-shadow: 0 3px 12px rgb(0 0 0 / 0.05); transition: box-shadow 0.2s ease;
 }
 .composer:focus-within { box-shadow: 0 8px 24px rgb(0 0 0 / 0.1); }
+.composer.drag-over {
+  border-color: color-mix(in oklab, var(--foreground) 35%, transparent);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.14);
+}
+.image-previews {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem;
+  padding: 0.85rem 0.85rem 0;
+}
+.image-preview {
+  position: relative; margin: 0; overflow: hidden; border-radius: 0.65rem;
+  aspect-ratio: 1; background: var(--muted);
+}
+.image-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.image-preview-remove {
+  position: absolute; top: 0.25rem; right: 0.25rem; display: grid; place-items: center;
+  width: 1.5rem; height: 1.5rem; border: 0; border-radius: 50%;
+  background: oklch(0 0 0 / 0.68); color: white;
+}
+.image-preview-remove svg { width: 0.8rem; height: 0.8rem; }
+.image-preview-remove:hover { background: oklch(0 0 0 / 0.84); }
 .composer textarea {
   display: block; width: 100%; min-height: 2.75rem; max-height: 12rem; padding: 1rem 1.25rem 0.5rem;
   border: 0; background: transparent; outline: none; resize: none; line-height: 1.55;
 }
 .composer-footer { display: flex; align-items: center; gap: 0.45rem; padding: 0 0.65rem 0.65rem; }
 .composer-hint { display: none; margin-right: auto; color: var(--muted-foreground); font-size: 0.72rem; }
+@media (max-width: 430px) {
+  .image-previews { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .send-button {
   display: grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; border: 0; border-radius: 50%;
   background: var(--foreground); color: var(--background); transition: transform 0.15s ease;

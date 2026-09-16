@@ -50,6 +50,13 @@ the reasoning stream automatically. The reasoning appears as a collapsed
 **Thinking** block above the answer. You can expand or collapse it at any time
 to follow or review the stream.
 
+## Images
+
+Models that advertise Ollama's `vision` capability show an **Images** button in
+the composer. Attach, paste, or drag in JPEG, PNG, or WebP images, then ask a
+question about them. Images are sent through Ollama's chat `images` field and
+remain part of the saved conversation so follow-up questions can refer to them.
+
 ## Architecture
 
 - `server.cjs` — Node's built-in HTTP server, Ollama streaming proxy, MCP tool loop, and static file server
