@@ -15,8 +15,7 @@ const exa = new ExaMcpClient({
   endpoint: process.env.EXA_MCP_URL
 });
 const defaultOllamaHost = process.env.OLLAMA_HOST || 'http://10.0.0.247:11434';
-const thinkingModels = new Map();
-const visionModels = new Map();
+const modelCapabilities = new Map();
 const mime = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -147,10 +146,9 @@ async function fetchPages(args, event) {
   }
 }
 
-async function modelCapability(baseUrl, model, capability, cache) {
+async function modelCapabilitiesFor(baseUrl, model) {
   const key = `${baseUrl}|${model}`;
-  const capabilities = cache.get(key);
-  if (capabilities) return capabilities.has(capability);
+  if (modelCapabilities.has(key)) return modelCapabilities.get(key);
   try {
     const response = await fetch(`${baseUrl}/api/show`, {
       method: 'POST',
@@ -160,14 +158,13 @@ async function modelCapability(baseUrl, model, capability, cache) {
     if (!response.ok) throw new Error(await response.text());
     const info = JSON.parse(await response.text());
     const supported = new Set(Array.isArray(info.capabilities) ? info.capabilities : []);
-    thinkingModels.set(key, supported.has('thinking'));
-    visionModels.set(key, supported.has('vision'));
-    return supported.has(capability);
+    modelCapabilities.set(key, supported);
+    return supported;
   } catch (error) {
     console.warn(`Unable to inspect capabilities for ${model}:`, error.message);
-    thinkingModels.set(key, false);
-    visionModels.set(key, false);
-    return false;
+    const unsupported = new Set();
+    modelCapabilities.set(key, unsupported);
+    return unsupported;
   }
 }
 
@@ -257,10 +254,9 @@ async function chat(req, res) {
   let thinking = '';
   try {
     const baseUrl = ollamaBase(input.ollamaUrl);
-    const [supportsThinking, supportsVision] = await Promise.all([
-      modelCapability(baseUrl, input.model, 'thinking', thinkingModels),
-      modelCapability(baseUrl, input.model, 'vision', visionModels)
-    ]);
+    const capabilities = await modelCapabilitiesFor(baseUrl, input.model);
+    const supportsThinking = capabilities.has('thinking');
+    const supportsVision = capabilities.has('vision');
     let context = conversation.messages
       .filter(message => !message.error && !(message.id === assistant.id && message.streaming))
       .map(message => {

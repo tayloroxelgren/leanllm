@@ -31,6 +31,8 @@
   const imagePreviews = $('image-previews');
   const imageButton = $('composer-image');
   const messageSources = new WeakMap();
+  let autoFollow = true;
+  let previousScrollTop = 0;
 
   async function api(pathname, options = {}) {
     const response = await fetch(pathname, {
@@ -392,8 +394,8 @@
   }
 
   function scrollToBottom(instant = false) {
-    const options = { top: messagesEl.scrollHeight };
-    if (instant) options.behavior = 'instant';
+    autoFollow = true;
+    const options = { top: messagesEl.scrollHeight, behavior: 'instant' };
     messagesEl.scrollTo(options);
   }
 
@@ -500,7 +502,7 @@
         ...(images.length ? { images } : {})
       });
       messagesEl.appendChild(messageNode(state.conversation.messages.at(-1)));
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
     }
 
     const localAssistant = { id: `local-assistant-${Date.now()}`, role: 'assistant', content: '', streaming: true };
@@ -582,7 +584,7 @@
       const node = messageNode(localAssistant, true);
       messagesEl.appendChild(node);
       assistantNodeRef.current = node;
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -618,7 +620,7 @@
         thinkingContent.dataset.sticky = String(thinkingSticky);
         thinkingContent.scrollTop = thinkingScroll;
       }
-      if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160) scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -642,7 +644,7 @@
           if (existingDetails.open) content.scrollTop = sticky ? content.scrollHeight : scrollTop;
         }
       }
-      if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 200) scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -650,7 +652,7 @@
       const message = await appendEvent('search-created', event);
       message.resultsOpen = false;
       messagesEl.appendChild(messageNode(message));
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -658,7 +660,7 @@
       const message = await appendEvent('fetch-created', event);
       message.resultsOpen = false;
       messagesEl.appendChild(messageNode(message));
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -913,7 +915,14 @@
   $('theme-toggle').addEventListener('click', () => setTheme(!document.documentElement.classList.contains('dark')));
   $('scroll-down').addEventListener('click', () => scrollToBottom());
   messagesEl.addEventListener('scroll', () => {
-    $('scroll-down').hidden = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+    const scrollTop = messagesEl.scrollTop;
+    const nearBottom = messagesEl.scrollHeight - scrollTop - messagesEl.clientHeight < 80;
+    // Content growth can change the bottom margin without changing scrollTop. Treat an
+    // explicit upward scroll as the user's request to stop following the stream.
+    if (scrollTop < previousScrollTop - 1) autoFollow = false;
+    else if (nearBottom) autoFollow = true;
+    previousScrollTop = scrollTop;
+    $('scroll-down').hidden = nearBottom;
   });
   window.addEventListener('keydown', event => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
