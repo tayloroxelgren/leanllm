@@ -50,12 +50,19 @@ the reasoning stream automatically. The reasoning appears as a collapsed
 **Thinking** block above the answer. You can expand or collapse it at any time
 to follow or review the stream.
 
+## Images
+
+Models that advertise Ollama's `vision` capability show an **Images** button in
+the composer. Attach, paste, or drag in JPEG, PNG, or WebP images, then ask a
+question about them. Images are sent through Ollama's chat `images` field and
+remain part of the saved conversation so follow-up questions can refer to them.
+
 ## Architecture
 
-- `server.js` — Node's built-in HTTP server, Ollama streaming proxy, MCP tool loop, and static file server
-- `lib/mcp-client.js` — minimal MCP Streamable HTTP client (initialize / tools / call)
-- `lib/search-results.js` — parser for Exa's MCP result format
-- `lib/store.js` — atomic JSON conversation persistence
+- `server.cjs` — Node's built-in HTTP server, Ollama streaming proxy, MCP tool loop, and static file server
+- `lib/mcp-client.cjs` — minimal MCP Streamable HTTP client (initialize / tools / call)
+- `lib/search-results.cjs` — parser for Exa's MCP result format
+- `lib/store.cjs` — atomic JSON conversation persistence
 - `public/` — vanilla HTML, CSS, and browser JavaScript
 
 There are no runtime npm dependencies. Conversations are stored in

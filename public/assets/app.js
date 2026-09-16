@@ -12,6 +12,8 @@
     controller: null,
     filter: ''
   };
+  const attachments = [];
+  const maxImages = 4;
 
   const settings = {
     ollamaUrl: localStorage.getItem('leanllm.ollamaUrl') || '',
@@ -25,6 +27,9 @@
   const sendButton = $('send');
   const stopButton = $('stop');
   const toastEl = $('toast');
+  const imageInput = $('image-input');
+  const imagePreviews = $('image-previews');
+  const imageButton = $('composer-image');
   const messageSources = new WeakMap();
 
   async function api(pathname, options = {}) {
@@ -62,6 +67,99 @@
     let unit = 0;
     while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
     return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
+
+  function currentModel() {
+    return state.models.find(model => model.name === state.model);
+  }
+
+  function currentModelSupportsVision() {
+    return currentModel()?.capabilities?.includes('vision') === true;
+  }
+
+  function clearAttachments() {
+    for (const attachment of attachments) URL.revokeObjectURL(attachment.previewUrl);
+    attachments.splice(0, attachments.length);
+    renderAttachments();
+  }
+
+  function removeAttachment(id) {
+    const index = attachments.findIndex(attachment => attachment.id === id);
+    if (index === -1) return;
+    URL.revokeObjectURL(attachments[index].previewUrl);
+    attachments.splice(index, 1);
+    renderAttachments();
+  }
+
+  function renderAttachments() {
+    imagePreviews.replaceChildren();
+    imagePreviews.hidden = !attachments.length;
+    for (const attachment of attachments) {
+      const figure = document.createElement('figure');
+      figure.className = 'image-preview';
+      figure.innerHTML = `
+        <img src="${escapeHtml(attachment.previewUrl)}" alt="${escapeHtml(attachment.file.name)}">
+        <button type="button" class="image-preview-remove" data-id="${escapeHtml(attachment.id)}" title="Remove image" aria-label="Remove ${escapeHtml(attachment.file.name)}">
+          <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>`;
+      imagePreviews.appendChild(figure);
+    }
+    updateInputState();
+  }
+
+  async function fileToAttachment(file) {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) throw new Error('Images must be JPEG, PNG, or WebP');
+    if (file.size > 20 * 1024 * 1024) throw new Error('Images must be 20 MB or smaller');
+
+    const id = `image-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    let output = file;
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const maxSize = 1568;
+      const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+      if (scale < 1 || file.type !== 'image/jpeg') {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        output = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+        if (!output) throw new Error('Unable to prepare image');
+      }
+      bitmap.close();
+    } catch {
+      // Browser decoders can reject formats even when the file selector allows them.
+      if (!allowed.includes(file.type)) throw new Error(`${file.name} could not be decoded`);
+    }
+
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error(`Unable to read ${file.name}`));
+      reader.readAsDataURL(output);
+    });
+    return { id, file, data, previewUrl: URL.createObjectURL(output) };
+  }
+
+  async function addFiles(files) {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    if (!currentModelSupportsVision()) {
+      toast(`${state.model || 'This model'} does not advertise vision support`);
+      return;
+    }
+    const room = maxImages - attachments.length;
+    if (room <= 0) { toast(`You can attach at most ${maxImages} images`); return; }
+    if (list.length > room) toast(`Only the first ${room} image${room === 1 ? '' : 's'} were added`);
+
+    for (const file of list.slice(0, room)) {
+      try {
+        attachments.push(await fileToAttachment(file));
+      } catch (error) {
+        toast(error.message);
+      }
+    }
+    renderAttachments();
   }
 
   function modelDisplayName(model) {
@@ -120,7 +218,13 @@
     messageSources.set(element, message.content || '');
     if (message.role === 'user') {
       element.className = 'message message-user';
-      element.innerHTML = `<div class="message-bubble">${escapeHtml(message.content)}</div>`;
+      const images = message.images || [];
+      element.innerHTML = `
+        <div class="message-bubble">
+          ${images.length ? `<div class="message-images">${images.map(image => `
+            <img src="${escapeHtml(image)}" alt="Attached image" loading="lazy">`).join('')}</div>` : ''}
+          ${message.content ? `<div>${escapeHtml(message.content)}</div>` : ''}
+        </div>`;
       return element;
     }
     if (message.role === 'search') {
@@ -261,11 +365,17 @@
   }
 
   function setModel(name) {
+    const supportsVision = state.models.find(model => model.name === name)?.capabilities?.includes('vision') === true;
     state.model = name;
     localStorage.setItem('leanllm.model', name || '');
     $('model-name').textContent = name ? modelDisplayName(name) : 'Select model';
     $('composer-model-name').textContent = name ? modelDisplayName(name) : 'Model';
     $('model-name').previousElementSibling.dataset.state = name ? 'ready' : 'unknown';
+    imageButton.disabled = !supportsVision;
+    if (!supportsVision && attachments.length) {
+      clearAttachments();
+      toast(`${name ? `${modelDisplayName(name)} does not advertise vision support` : 'Select a model to attach images'}`);
+    }
     renderModels();
   }
 
@@ -300,6 +410,7 @@
     } catch (error) {
       state.models = [];
       renderModels();
+      imageButton.disabled = true;
       showConnectionError(`Ollama is unavailable: ${error.message}`);
     }
   }
@@ -322,6 +433,7 @@
 
   async function openConversation(id) {
     if (state.sending) stopSending();
+    clearAttachments();
     const conversation = await api(`/api/conversations/${id}`);
     state.conversation = conversation;
     setModel(conversation.model || state.model);
@@ -332,6 +444,7 @@
 
   function newChat() {
     if (state.sending) stopSending();
+    clearAttachments();
     state.conversation = null;
     renderConversation();
     renderConversationList();
@@ -341,7 +454,7 @@
   function updateInputState() {
     inputEl.style.height = 'auto';
     inputEl.style.height = `${Math.min(inputEl.scrollHeight, 192)}px`;
-    sendButton.disabled = state.sending || !inputEl.value.trim();
+    sendButton.disabled = state.sending || (!inputEl.value.trim() && !attachments.length);
   }
 
   function stopSending() {
@@ -366,7 +479,7 @@
 
   async function sendMessage() {
     const content = inputEl.value.trim();
-    if (!content || state.sending) return;
+    if ((!content && !attachments.length) || state.sending) return;
     if (!state.model) { toast('Select an Ollama model first'); return; }
     clearConnectionError();
     state.sending = true;
@@ -375,11 +488,17 @@
     stopButton.hidden = false;
     inputEl.value = '';
     updateInputState();
+    const images = attachments.map(attachment => attachment.data);
     if (!state.conversation) {
       state.conversation = { id: null, messages: [], title: 'New chat' };
       messagesEl.replaceChildren();
     } else {
-      state.conversation.messages.push({ id: `local-user-${Date.now()}`, role: 'user', content });
+      state.conversation.messages.push({
+        id: `local-user-${Date.now()}`,
+        role: 'user',
+        content,
+        ...(images.length ? { images } : {})
+      });
       messagesEl.appendChild(messageNode(state.conversation.messages.at(-1)));
       scrollToBottom();
     }
@@ -400,6 +519,7 @@
           model: state.model,
           webSearch: state.webSearch,
           message: content,
+          images,
           ollamaUrl: settings.ollamaUrl,
           systemPrompt: settings.systemPrompt,
           temperature: Number(settings.temperature),
@@ -407,6 +527,7 @@
         })
       });
       if (!response.ok || !response.body) throw new Error((await response.json().catch(() => ({}))).error || `Request failed (${response.status})`);
+      clearAttachments();
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -732,6 +853,33 @@
   $('model-filter').addEventListener('input', renderModels);
 
   $('composer').addEventListener('submit', event => { event.preventDefault(); sendMessage(); });
+  $('composer-image').addEventListener('click', () => imageInput.click());
+  imageInput.addEventListener('change', () => {
+    addFiles(imageInput.files).catch(error => toast(error.message));
+    imageInput.value = '';
+  });
+  imagePreviews.addEventListener('click', event => {
+    const button = event.target.closest('.image-preview-remove');
+    if (button) removeAttachment(button.dataset.id);
+  });
+  inputEl.addEventListener('paste', event => {
+    if (event.clipboardData?.files?.length) {
+      event.preventDefault();
+      addFiles(event.clipboardData.files).catch(error => toast(error.message));
+    }
+  });
+  $('composer').addEventListener('dragover', event => {
+    event.preventDefault();
+    $('composer').classList.add('drag-over');
+  });
+  $('composer').addEventListener('dragleave', event => {
+    if (event.target.closest('#composer')) $('composer').classList.remove('drag-over');
+  });
+  $('composer').addEventListener('drop', event => {
+    event.preventDefault();
+    $('composer').classList.remove('drag-over');
+    addFiles(event.dataTransfer?.files).catch(error => toast(error.message));
+  });
   stopButton.addEventListener('click', stopSending);
   inputEl.addEventListener('input', updateInputState);
   inputEl.addEventListener('keydown', event => {

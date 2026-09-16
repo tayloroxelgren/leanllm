@@ -1,13 +1,12 @@
-import http from 'node:http';
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { ConversationStore } from './lib/store.js';
-import { ExaMcpClient } from './lib/mcp-client.js';
-import { parseSearchResults } from './lib/search-results.js';
+const http = require('node:http');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const path = require('node:path');
+const { ConversationStore } = require('./lib/store.cjs');
+const { ExaMcpClient } = require('./lib/mcp-client.cjs');
+const { parseSearchResults } = require('./lib/search-results.cjs');
 
-const root = path.dirname(fileURLToPath(import.meta.url));
+const root = __dirname;
 const port = Number(process.env.PORT || 5173);
 const dataDir = process.env.LEANLLM_DATA_DIR || path.join(root, 'data');
 const store = new ConversationStore(path.join(dataDir, 'conversations.json'));
@@ -17,6 +16,7 @@ const exa = new ExaMcpClient({
 });
 const defaultOllamaHost = process.env.OLLAMA_HOST || 'http://10.0.0.247:11434';
 const thinkingModels = new Map();
+const visionModels = new Map();
 const mime = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -25,8 +25,6 @@ const mime = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml'
 };
-
-await store.load();
 
 function send(res, status, body, headers = {}) {
   res.writeHead(status, {
@@ -46,7 +44,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 10 * 1024 * 1024) throw Object.assign(new Error('Payload too large'), { status: 413 });
+    if (size > 32 * 1024 * 1024) throw Object.assign(new Error('Payload too large'), { status: 413 });
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
@@ -149,9 +147,10 @@ async function fetchPages(args, event) {
   }
 }
 
-async function modelSupportsThinking(baseUrl, model) {
+async function modelCapability(baseUrl, model, capability, cache) {
   const key = `${baseUrl}|${model}`;
-  if (thinkingModels.has(key)) return thinkingModels.get(key);
+  const capabilities = cache.get(key);
+  if (capabilities) return capabilities.has(capability);
   try {
     const response = await fetch(`${baseUrl}/api/show`, {
       method: 'POST',
@@ -160,19 +159,62 @@ async function modelSupportsThinking(baseUrl, model) {
     });
     if (!response.ok) throw new Error(await response.text());
     const info = JSON.parse(await response.text());
-    const supports = Array.isArray(info.capabilities) && info.capabilities.includes('thinking');
-    thinkingModels.set(key, supports);
-    return supports;
+    const supported = new Set(Array.isArray(info.capabilities) ? info.capabilities : []);
+    thinkingModels.set(key, supported.has('thinking'));
+    visionModels.set(key, supported.has('vision'));
+    return supported.has(capability);
   } catch (error) {
-    console.warn(`Unable to inspect thinking support for ${model}:`, error.message);
+    console.warn(`Unable to inspect capabilities for ${model}:`, error.message);
     thinkingModels.set(key, false);
+    visionModels.set(key, false);
     return false;
   }
 }
 
+function normalizeImage(value, index) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=\s]+)$/i);
+  const base64 = (match ? match[2] : raw).replace(/\s+/g, '');
+  const decoded = Buffer.from(base64, 'base64');
+  if (!base64 || base64.length % 4 || !decoded.length) {
+    throw Object.assign(new Error(`Image ${index + 1} is not valid base64`), { status: 400 });
+  }
+  const encodedLength = Math.ceil(decoded.length / 3) * 4;
+  if (decoded.length > 5 * 1024 * 1024 || base64.length > encodedLength) {
+    throw Object.assign(new Error(`Image ${index + 1} is too large (5 MB maximum)`), { status: 413 });
+  }
+  const isJpeg = decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
+  const isPng = decoded.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  const isWebp = decoded.subarray(0, 4).toString('latin1') === 'RIFF'
+    && decoded.subarray(8, 12).toString('latin1') === 'WEBP';
+  if (!isJpeg && !isPng && !isWebp) {
+    throw Object.assign(new Error(`Image ${index + 1} must be JPEG, PNG, or WebP`), { status: 415 });
+  }
+  return match ? raw : `data:image/${isJpeg ? 'jpeg' : isPng ? 'png' : 'webp'};base64,${base64}`;
+}
+
+function normalizedImages(values) {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw Object.assign(new Error('Images must be an array'), { status: 400 });
+  if (values.length > 4) throw Object.assign(new Error('A message can include at most 4 images'), { status: 400 });
+  return values.map(normalizeImage);
+}
+
+function ollamaImages(images) {
+  return (images || []).map(value => String(value).replace(/^data:[^,]+,/, ''));
+}
+
 async function chat(req, res) {
   const input = await readJson(req);
-  if (!input.message?.trim()) return json(res, 400, { error: 'Message is required' });
+  let images;
+  try {
+    images = normalizedImages(input.images);
+  } catch (error) {
+    return json(res, error.status || 400, { error: error.message });
+  }
+  if (!input.message?.trim() && !images.length) {
+    return json(res, 400, { error: 'A message or image is required' });
+  }
 
   let conversation = input.conversationId ? store.get(input.conversationId) : null;
   if (!conversation) {
@@ -185,7 +227,14 @@ async function chat(req, res) {
     model: input.model,
     webSearch: Boolean(input.webSearch)
   });
-  const user = store.addMessage(conversation.id, { role: 'user', content: input.message.trim() });
+  if (!input.message?.trim() && conversation.title === 'New chat') {
+    store.update(conversation.id, { title: `Image chat · ${new Date().toLocaleDateString()}` });
+  }
+  const user = store.addMessage(conversation.id, {
+    role: 'user',
+    content: input.message?.trim() || '',
+    ...(images.length ? { images } : {})
+  });
 
   res.writeHead(200, {
     'cache-control': 'no-store',
@@ -208,7 +257,10 @@ async function chat(req, res) {
   let thinking = '';
   try {
     const baseUrl = ollamaBase(input.ollamaUrl);
-    const supportsThinking = await modelSupportsThinking(baseUrl, input.model);
+    const [supportsThinking, supportsVision] = await Promise.all([
+      modelCapability(baseUrl, input.model, 'thinking', thinkingModels),
+      modelCapability(baseUrl, input.model, 'vision', visionModels)
+    ]);
     let context = conversation.messages
       .filter(message => !message.error && !(message.id === assistant.id && message.streaming))
       .map(message => {
@@ -224,7 +276,11 @@ async function chat(req, res) {
           return { role: 'tool', content: output, tool_name: 'web_search_exa' };
         }
         if (message.role === 'fetch') return { role: 'tool', content: message.toolOutput || message.content, tool_name: 'web_fetch_exa' };
-        return { role: message.role, content: message.content };
+        const normalized = { role: message.role, content: message.content };
+        if (message.role === 'user' && message.images?.length) {
+          if (supportsVision) normalized.images = ollamaImages(message.images);
+        }
+        return normalized;
       });
     context.unshift({ role: 'system', content: buildSystemPrompt(input.systemPrompt) });
 
@@ -453,7 +509,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`LeanLLM ready: http://localhost:${port}`);
-  console.log(`Data: ${dataDir}`);
+store.load().then(() => {
+  server.listen(port, () => {
+    console.log(`LeanLLM ready: http://localhost:${port}`);
+    console.log(`Data: ${dataDir}`);
+  });
+}).catch(error => {
+  console.error('Unable to initialize conversations:', error);
+  process.exitCode = 1;
 });
