@@ -23,6 +23,7 @@
   };
 
   const messagesEl = $('messages');
+  const appEl = $('app');
   const inputEl = $('input');
   const sendButton = $('send');
   const stopButton = $('stop');
@@ -393,6 +394,15 @@
     $('model-trigger').setAttribute('aria-expanded', 'false');
   }
 
+  function updateViewportHeight() {
+    appEl.style.height = `${Math.round(window.visualViewport?.height || window.innerHeight)}px`;
+  }
+
+  function closeMobileNav() {
+    $('sidebar').classList.remove('open');
+    $('sidebar-backdrop').classList.remove('open');
+  }
+
   function scrollToBottom(instant = false) {
     autoFollow = true;
     const options = { top: messagesEl.scrollHeight, behavior: 'instant' };
@@ -442,6 +452,7 @@
     setWebSearch(Boolean(conversation.webSearch));
     renderConversation();
     renderConversationList();
+    closeMobileNav();
   }
 
   function newChat() {
@@ -450,6 +461,7 @@
     state.conversation = null;
     renderConversation();
     renderConversationList();
+    closeMobileNav();
     inputEl.focus();
   }
 
@@ -930,6 +942,11 @@
       $('conversation-filter').focus();
     }
   });
+  updateViewportHeight();
+  window.visualViewport?.addEventListener('resize', updateViewportHeight);
+  window.visualViewport?.addEventListener('scroll', updateViewportHeight);
+  window.addEventListener('resize', updateViewportHeight);
+  window.addEventListener('orientationchange', updateViewportHeight);
 
   setTheme(document.documentElement.classList.contains('dark'));
   setWebSearch(state.webSearch);

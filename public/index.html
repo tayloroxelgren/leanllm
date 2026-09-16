@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="LeanLLM — a focused chat interface for local Ollama models.">
   <meta name="theme-color" content="#292524">
   <title>LeanLLM</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231c1917'/><path d='M30 24h11v41h28v11H30Z' fill='%23fafaf9'/></svg>">
-  <link rel="stylesheet" href="/assets/index.css?v=20260915">
+  <link rel="stylesheet" href="/assets/index.css?v=20260916">
   <script>
     const stored = localStorage.getItem('leanllm.theme');
     const dark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
@@ -97,11 +97,11 @@
               <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
               <span>Images</span>
             </button>
-            <button type="button" id="composer-model" class="composer-chip">
+            <button type="button" id="composer-model" class="composer-chip" aria-label="Select model">
               <svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="M12 22V12m9-5-9 5-9-5"/></svg>
               <span id="composer-model-name">Model</span>
             </button>
-            <button type="button" id="composer-search" class="composer-chip" aria-pressed="false">
+            <button type="button" id="composer-search" class="composer-chip" aria-label="Toggle web search" aria-pressed="false">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg>
               <span>Web search</span>
             </button>
