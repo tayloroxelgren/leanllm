@@ -122,6 +122,7 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-linecap:
 
 .chat {
   position: relative; z-index: 10; display: flex; flex: 1 1 0; flex-direction: column; min-width: 0;
+  min-height: 0;
 }
 .chat-header {
   position: relative; z-index: 30; display: flex; align-items: center; gap: 0.75rem;
@@ -191,8 +192,9 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-linecap:
 .message-user { display: flex; justify-content: flex-end; }
 .message-bubble {
   max-width: min(85%, 40rem); border-radius: 1.25rem; background: var(--secondary); color: var(--secondary-foreground);
-  padding: 0.75rem 1rem; overflow-wrap: anywhere; line-height: 1.6; white-space: pre-wrap;
+  padding: 0.7rem 0.85rem; overflow-wrap: anywhere; line-height: 1.55; white-space: normal;
 }
+.message-bubble > div { white-space: pre-wrap; }
 .message-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
 .message-images + div { margin-top: 0.5rem; }
 .message-images img {
@@ -401,7 +403,7 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-linecap:
   .model-option { padding: 0.75rem 0.65rem; }
   .messages { padding: 1.25rem 0.65rem 0; }
   .message { margin-bottom: 1.7rem; }
-  .message-bubble { max-width: min(94%, 40rem); }
+  .message-bubble { max-width: min(92%, 34rem); }
   .composer-wrap { padding: 0 0.5rem calc(0.5rem + env(safe-area-inset-bottom)); }
   .composer { border-radius: 1.25rem; }
   .composer textarea {

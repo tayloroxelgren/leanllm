@@ -13,7 +13,7 @@
     filter: ''
   };
   const attachments = [];
-  const maxImages = 4;
+  const maxImages = 20;
 
   const settings = {
     ollamaUrl: localStorage.getItem('leanllm.ollamaUrl') || '',

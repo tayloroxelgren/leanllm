@@ -43,7 +43,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 32 * 1024 * 1024) throw Object.assign(new Error('Payload too large'), { status: 413 });
+    if (size > 160 * 1024 * 1024) throw Object.assign(new Error('Payload too large'), { status: 413 });
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
@@ -71,13 +71,20 @@ function safeTitle(conversation) {
   return conversation.title || 'New chat';
 }
 
-function buildSystemPrompt(customPrompt = '') {
+function buildSystemPrompt(customPrompt = '', webSearchEnabled = false) {
   const timestamp = new Intl.DateTimeFormat('en-US', {
     dateStyle: 'full',
     timeStyle: 'long'
   }).format(new Date());
   return [
     customPrompt.trim(),
+    ...(webSearchEnabled ? [
+      'Web research policy: Use the available web search tool frequently.',
+      'Search whenever a question could benefit from current, local, changing, specialized, or uncertain information,',
+      'including news, prices, software, laws, people, places, events, standards, or anything after your training cutoff.',
+      'When in doubt, search first rather than relying on memory. Fetch promising pages when search highlights are insufficient,',
+      'then ground your answer in the results and cite the URLs you used.'
+    ].join(' ') : []),
     `Current date and time: ${timestamp}. Treat this timestamp as authoritative for the current date.`
   ].filter(Boolean).join('\n\n');
 }
@@ -193,7 +200,7 @@ function normalizeImage(value, index) {
 function normalizedImages(values) {
   if (values == null) return [];
   if (!Array.isArray(values)) throw Object.assign(new Error('Images must be an array'), { status: 400 });
-  if (values.length > 4) throw Object.assign(new Error('A message can include at most 4 images'), { status: 400 });
+  if (values.length > 20) throw Object.assign(new Error('A message can include at most 20 images'), { status: 400 });
   return values.map(normalizeImage);
 }
 
@@ -278,7 +285,7 @@ async function chat(req, res) {
         }
         return normalized;
       });
-    context.unshift({ role: 'system', content: buildSystemPrompt(input.systemPrompt) });
+    context.unshift({ role: 'system', content: buildSystemPrompt(input.systemPrompt, conversation.webSearch) });
 
     for (let turn = 0; turn < 8; turn++) {
       const requestBody = {
