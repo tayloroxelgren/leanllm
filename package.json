@@ -2,16 +2,19 @@
   "name": "leanllm",
   "version": "0.1.0",
   "private": true,
-  "description": "A dependency-free chat UI for local Ollama models with Exa MCP web search.",
+  "description": "A small chat UI for local Ollama models with Exa MCP web search and PDF attachments.",
   "type": "module",
   "main": "server.cjs",
   "scripts": {
-    "start": "node server.cjs",
-    "dev": "node --watch server.cjs",
+    "start": "node --max-old-space-size=256 server.cjs",
+    "dev": "node --watch --max-old-space-size=256 server.cjs",
     "check": "node --check server.cjs && node --check lib/mcp-client.cjs && node --check lib/search-results.cjs && node --check lib/store.cjs && node --check public/assets/markdown.js && node --check public/assets/app.js",
     "test": "npm run check && node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "pdf-parse": "^2.4.5"
   }
 }

@@ -1,8 +1,16 @@
 # LeanLLM
 
-A small, dependency-free chat UI for Ollama.
+A small chat UI for Ollama.
 
 ## Quick start
+
+Requires Node.js 18 or newer. Install the runtime dependencies once:
+
+```bash
+npm install
+```
+
+Then start the server:
 
 ```bash
 npm start
@@ -50,12 +58,25 @@ the reasoning stream automatically. The reasoning appears as a collapsed
 **Thinking** block above the answer. You can expand or collapse it at any time
 to follow or review the stream.
 
-## Images
+## Attachments
 
-Models that advertise Ollama's `vision` capability show an **Images** button in
-the composer. Attach, paste, or drag in JPEG, PNG, or WebP images, then ask a
-question about them. Images are sent through Ollama's chat `images` field and
-remain part of the saved conversation so follow-up questions can refer to them.
+Use **Attach** to include images and PDFs with a message; you can also paste or
+drag files into the composer.
+
+### Images
+
+Models that advertise Ollama's `vision` capability can receive JPEG, PNG, or
+WebP images. Images are uploaded to the server, referenced by the saved
+conversation, and streamed to Ollama during chat so follow-up questions can
+refer to them. A message can include up to 20 images, each up to 5 MB.
+
+### PDFs
+
+Attach PDFs to any chat, including with models that do not support vision.
+LeanLLM extracts the PDF text by page and includes that text in the model
+context. A message can include up to 10 PDFs, each up to 40 MB, and the server
+rejects PDFs that contain no extractable text. Extracted content is retained
+with the conversation so follow-up questions can refer to the document.
 
 ## Architecture
 
@@ -65,8 +86,25 @@ remain part of the saved conversation so follow-up questions can refer to them.
 - `lib/store.cjs` — atomic JSON conversation persistence
 - `public/` — vanilla HTML, CSS, and browser JavaScript
 
-There are no runtime npm dependencies. Conversations are stored in
-`data/conversations.json`.
+`pdf-parse` is the runtime npm dependency used for PDF text extraction.
+
+Conversations are stored in `data/conversations.json`. Uploaded images are
+stored under `data/images/`, and extracted PDF text is stored under
+`data/documents/`. Deleting a conversation prunes attachments that are no
+longer referenced.
+
+## Upgrading existing data
+
+If you have conversations created before images moved to disk, stop the server
+and run the one-time migration:
+
+```bash
+node scripts/extract-images.cjs
+```
+
+The script moves inline base64 images into `data/images/`, keeps a timestamped
+backup of `conversations.json`, and is safe to run again if there is nothing to
+migrate.
 
 ---
 <small>This was all vibed</small>

@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
   const $ = id => document.getElementById(id);
   const state = {
     conversations: [],
@@ -14,6 +16,7 @@
   };
   const attachments = [];
   const maxImages = 20;
+  const maxDocuments = 10;
 
   const settings = {
     ollamaUrl: localStorage.getItem('leanllm.ollamaUrl') || '',
@@ -81,7 +84,7 @@
   }
 
   function clearAttachments() {
-    for (const attachment of attachments) URL.revokeObjectURL(attachment.previewUrl);
+    for (const attachment of attachments) { if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl); }
     attachments.splice(0, attachments.length);
     renderAttachments();
   }
@@ -89,7 +92,7 @@
   function removeAttachment(id) {
     const index = attachments.findIndex(attachment => attachment.id === id);
     if (index === -1) return;
-    URL.revokeObjectURL(attachments[index].previewUrl);
+    if (attachments[index].previewUrl) URL.revokeObjectURL(attachments[index].previewUrl);
     attachments.splice(index, 1);
     renderAttachments();
   }
@@ -99,23 +102,39 @@
     imagePreviews.hidden = !attachments.length;
     for (const attachment of attachments) {
       const figure = document.createElement('figure');
-      figure.className = 'image-preview';
-      figure.innerHTML = `
-        <img src="${escapeHtml(attachment.previewUrl)}" alt="${escapeHtml(attachment.file.name)}">
-        <button type="button" class="image-preview-remove" data-id="${escapeHtml(attachment.id)}" title="Remove image" aria-label="Remove ${escapeHtml(attachment.file.name)}">
-          <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>`;
+      if (attachment.kind === 'pdf') {
+        figure.className = 'document-preview';
+        figure.innerHTML = `
+          <svg viewBox="0 0 24 24" class="document-icon"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+          <span class="document-name">${escapeHtml(attachment.file.name)}</span>
+          <button type="button" class="image-preview-remove" data-id="${escapeHtml(attachment.id)}" title="Remove document" aria-label="Remove ${escapeHtml(attachment.file.name)}">
+            <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>`;
+      } else {
+        figure.className = 'image-preview';
+        figure.innerHTML = `
+          <img src="${escapeHtml(attachment.previewUrl)}" alt="${escapeHtml(attachment.file.name)}">
+          <button type="button" class="image-preview-remove" data-id="${escapeHtml(attachment.id)}" title="Remove image" aria-label="Remove ${escapeHtml(attachment.file.name)}">
+            <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>`;
+      }
       imagePreviews.appendChild(figure);
     }
     updateInputState();
   }
 
   async function fileToAttachment(file) {
+    const id = `file-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      if (file.size > 40 * 1024 * 1024) throw new Error('PDFs must be 40 MB or smaller');
+      return { id, kind: 'pdf', file, blob: file, previewUrl: null };
+    }
+
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type)) throw new Error('Images must be JPEG, PNG, or WebP');
     if (file.size > 20 * 1024 * 1024) throw new Error('Images must be 20 MB or smaller');
 
-    const id = `image-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     let output = file;
     try {
       const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
@@ -135,27 +154,31 @@
       if (!allowed.includes(file.type)) throw new Error(`${file.name} could not be decoded`);
     }
 
-    const data = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error(`Unable to read ${file.name}`));
-      reader.readAsDataURL(output);
-    });
-    return { id, file, data, previewUrl: URL.createObjectURL(output) };
+    return { id, file, blob: output, previewUrl: URL.createObjectURL(output) };
   }
 
   async function addFiles(files) {
     const list = Array.from(files || []);
     if (!list.length) return;
-    if (!currentModelSupportsVision()) {
-      toast(`${state.model || 'This model'} does not advertise vision support`);
-      return;
-    }
-    const room = maxImages - attachments.length;
-    if (room <= 0) { toast(`You can attach at most ${maxImages} images`); return; }
-    if (list.length > room) toast(`Only the first ${room} image${room === 1 ? '' : 's'} were added`);
 
-    for (const file of list.slice(0, room)) {
+    const pdfFiles = list.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    const imageFiles = list.filter(f => !pdfFiles.includes(f));
+
+    if (imageFiles.length && !currentModelSupportsVision()) {
+      toast(`${state.model || 'This model'} does not advertise vision support for images`);
+      if (!pdfFiles.length) return;
+    }
+
+    const imageRoom = maxImages - attachments.filter(a => a.kind !== 'pdf').length;
+    const documentRoom = maxDocuments - attachments.filter(a => a.kind === 'pdf').length;
+
+    if (imageFiles.length && imageRoom <= 0) toast(`You can attach at most ${maxImages} images`);
+    if (pdfFiles.length && documentRoom <= 0) toast(`You can attach at most ${maxDocuments} documents`);
+
+    const usableImages = imageFiles.slice(0, Math.max(0, imageRoom));
+    const usablePdfs = pdfFiles.slice(0, Math.max(0, documentRoom));
+
+    for (const file of [...usableImages, ...usablePdfs]) {
       try {
         attachments.push(await fileToAttachment(file));
       } catch (error) {
@@ -222,10 +245,13 @@
     if (message.role === 'user') {
       element.className = 'message message-user';
       const images = message.images || [];
+      const documents = message.documents || [];
       element.innerHTML = `
         <div class="message-bubble">
           ${images.length ? `<div class="message-images">${images.map(image => `
             <img src="${escapeHtml(image)}" alt="Attached image" loading="lazy">`).join('')}</div>` : ''}
+          ${documents.length ? `<div class="message-documents">${documents.map(doc => `
+            <span class="document-chip"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg> PDF</span>`).join('')}</div>` : ''}
           ${message.content ? `<div>${escapeHtml(message.content)}</div>` : ''}
         </div>`;
       return element;
@@ -289,6 +315,7 @@
     for (const message of conversation.messages) {
       messagesEl.appendChild(messageNode(message, message === lastAssistant));
     }
+    autoFollow = true;
     scrollToBottom(true);
   }
 
@@ -374,9 +401,15 @@
     $('model-name').textContent = name ? modelDisplayName(name) : 'Select model';
     $('composer-model-name').textContent = name ? modelDisplayName(name) : 'Model';
     $('model-name').previousElementSibling.dataset.state = name ? 'ready' : 'unknown';
-    imageButton.disabled = !supportsVision;
-    if (!supportsVision && attachments.length) {
-      clearAttachments();
+    imageButton.disabled = false;
+    const imageAttachments = attachments.filter(a => a.kind !== 'pdf');
+    if (!supportsVision && imageAttachments.length) {
+      // Remove only image attachments; documents (PDFs) don't need vision.
+      for (const attachment of imageAttachments) {
+        URL.revokeObjectURL(attachment.previewUrl);
+        attachments.splice(attachments.indexOf(attachment), 1);
+      }
+      renderAttachments();
       toast(`${name ? `${modelDisplayName(name)} does not advertise vision support` : 'Select a model to attach images'}`);
     }
     renderModels();
@@ -403,10 +436,14 @@
     $('sidebar-backdrop').classList.remove('open');
   }
 
+  function isTouchKeyboard() {
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  }
+
   function scrollToBottom(instant = false) {
-    autoFollow = true;
-    const options = { top: messagesEl.scrollHeight, behavior: 'instant' };
-    messagesEl.scrollTo(options);
+    // Position before paint and suppress any inherited smooth-scroll behavior.
+    messagesEl.style.scrollBehavior = 'auto';
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'instant' });
   }
 
   async function loadModels() {
@@ -422,7 +459,6 @@
     } catch (error) {
       state.models = [];
       renderModels();
-      imageButton.disabled = true;
       showConnectionError(`Ollama is unavailable: ${error.message}`);
     }
   }
@@ -448,7 +484,9 @@
     clearAttachments();
     const conversation = await api(`/api/conversations/${id}`);
     state.conversation = conversation;
-    setModel(conversation.model || state.model);
+    // Keep the active model across chats; an older conversation's model is
+    // history about that thread, not the next default.
+    setModel(state.model || conversation.model);
     setWebSearch(Boolean(conversation.webSearch));
     renderConversation();
     renderConversationList();
@@ -502,7 +540,30 @@
     stopButton.hidden = false;
     inputEl.value = '';
     updateInputState();
-    const images = attachments.map(attachment => attachment.data);
+    const images = [];
+    const documents = [];
+    try {
+      // Upload each attachment as a raw binary stream; the server writes
+      // each to disk and returns a reference URL. No base64 in chat bodies.
+      for (const attachment of attachments) {
+        const endpoint = attachment.kind === 'pdf' ? '/api/documents' : '/api/images';
+        const upload = await fetch(endpoint, { method: 'POST', body: attachment.blob, signal: state.controller.signal });
+        if (!upload.ok) {
+          const detail = await upload.json().catch(() => ({}));
+          throw new Error(detail.error || `Upload failed (${upload.status})`);
+        }
+        const result = await upload.json();
+        if (attachment.kind === 'pdf') documents.push(result.url);
+        else images.push(result.url);
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') toast(error.message);
+      state.sending = false;
+      state.controller = null;
+      stopButton.hidden = true;
+      updateInputState();
+      return;
+    }
     if (!state.conversation) {
       state.conversation = { id: null, messages: [], title: 'New chat' };
       messagesEl.replaceChildren();
@@ -511,7 +572,8 @@
         id: `local-user-${Date.now()}`,
         role: 'user',
         content,
-        ...(images.length ? { images } : {})
+        ...(images.length ? { images } : {}),
+        ...(documents.length ? { documents } : {})
       });
       messagesEl.appendChild(messageNode(state.conversation.messages.at(-1)));
       if (autoFollow) scrollToBottom();
@@ -521,6 +583,7 @@
     state.conversation.messages.push(localAssistant);
     let assistantNode = messageNode(localAssistant, true);
     messagesEl.appendChild(assistantNode);
+    autoFollow = true;
     scrollToBottom();
 
     try {
@@ -534,6 +597,7 @@
           webSearch: state.webSearch,
           message: content,
           images,
+          documents,
           ollamaUrl: settings.ollamaUrl,
           systemPrompt: settings.systemPrompt,
           temperature: Number(settings.temperature),
@@ -612,7 +676,7 @@
       localAssistant.thinkingOpen = false;
       const node = messageNode(target, true);
       setAssistantNode(node);
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -691,7 +755,7 @@
       const node = messageNode(message);
       node.querySelector('.search-card').open = isOpen;
       existing?.closest('.message')?.replaceWith(node);
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -711,7 +775,7 @@
       const node = messageNode(message);
       node.querySelector('.search-card').open = isOpen;
       existing?.closest('.message')?.replaceWith(node);
-      scrollToBottom();
+      if (autoFollow) scrollToBottom();
       return;
     }
 
@@ -866,7 +930,12 @@
   });
   $('model-filter').addEventListener('input', renderModels);
 
-  $('composer').addEventListener('submit', event => { event.preventDefault(); sendMessage(); });
+  $('composer').addEventListener('submit', event => {
+    event.preventDefault();
+    // On touch devices, ignore implicit form submission; require the Send button.
+    if (isTouchKeyboard() && event.submitter !== sendButton) return;
+    sendMessage();
+  });
   $('composer-image').addEventListener('click', () => imageInput.click());
   imageInput.addEventListener('change', () => {
     addFiles(imageInput.files).catch(error => toast(error.message));
@@ -897,6 +966,9 @@
   stopButton.addEventListener('click', stopSending);
   inputEl.addEventListener('input', updateInputState);
   inputEl.addEventListener('keydown', event => {
+    // Touch keyboards use Return for a plain newline; only explicit Send
+    // submits on mobile. Desktop retains Enter-to-send.
+    if (isTouchKeyboard()) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       sendMessage();
@@ -925,7 +997,7 @@
   $('temperature').addEventListener('input', event => { $('temperature-output').textContent = Number(event.target.value).toFixed(2); });
   $('top-p').addEventListener('input', event => { $('top-p-output').textContent = Number(event.target.value).toFixed(2); });
   $('theme-toggle').addEventListener('click', () => setTheme(!document.documentElement.classList.contains('dark')));
-  $('scroll-down').addEventListener('click', () => scrollToBottom());
+  $('scroll-down').addEventListener('click', () => { autoFollow = true; scrollToBottom(); });
   messagesEl.addEventListener('scroll', () => {
     const scrollTop = messagesEl.scrollTop;
     const nearBottom = messagesEl.scrollHeight - scrollTop - messagesEl.clientHeight < 80;
@@ -943,6 +1015,7 @@
     }
   });
   updateViewportHeight();
+  window.scrollTo(0, 0);
   window.visualViewport?.addEventListener('resize', updateViewportHeight);
   window.visualViewport?.addEventListener('scroll', updateViewportHeight);
   window.addEventListener('resize', updateViewportHeight);
